@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLAYER
+  KITCHEN
+  RIDER
+  ADMIN
+}
+
+enum OrderStatus {
+  PLACED
+  ACCEPTED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  phone        String?    @unique
+  email        String?    @unique
+  passwordHash String?
+  name         String?
+  roles        UserRole[] @default([PLAYER])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  orders            Order[]
+  riderProfile      RiderProfile?
+  kitchenVendorId   String?
+  kitchenVendor     Vendor?   @relation("KitchenStaff", fields: [kitchenVendorId], references: [id])
+  deliveryAssignments DeliveryAssignment[]
+  locationPings     LocationPing[]
+  otpChallenges     OtpChallenge[]
+}
+
+model OtpChallenge {
+  id        String   @id @default(uuid())
+  phone     String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([phone, createdAt])
+}
+
+model Vendor {
+  id                     String   @id @default(uuid())
+  name                   String
+  prepTimeDefaultMinutes Int      @default(25)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  grounds        Ground[]
+  menuCategories MenuCategory[]
+  menuItems      MenuItem[]
+  orders         Order[]
+  kitchenStaff   User[]         @relation("KitchenStaff")
+}
+
+model Ground {
+  id           String   @id @default(uuid())
+  name         String
+  address      String
+  lat          Float
+  lng          Float
+  serviceHours String?
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+}
+
+model MenuCategory {
+  id        String   @id @default(uuid())
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  name      String
+  sortOrder Int      @default(0)
+  items     MenuItem[]
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  categoryId  String?
+  category    MenuCategory? @relation(fields: [categoryId], references: [id])
+  name        String
+  description String?
+  pricePaise  Int
+  isVeg       Boolean  @default(true)
+  prepMinutes Int      @default(15)
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems OrderItem[]
+}
+
+model Order {
+  id                 String        @id @default(uuid())
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  groundId           String
+  ground             Ground        @relation(fields: [groundId], references: [id])
+  vendorId           String
+  vendor             Vendor        @relation(fields: [vendorId], references: [id])
+  expectedFinishAt   DateTime
+  prepStartTarget    DateTime
+  status             OrderStatus   @default(PLACED)
+  subtotalPaise      Int
+  deliveryFeePaise   Int           @default(0)
+  paymentStatus      PaymentStatus @default(PENDING)
+  playerNotes        String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  items              OrderItem[]
+  events             OrderEvent[]
+  deliveryAssignment DeliveryAssignment?
+  deliveryOtp        DeliveryOtp?
+  locationPings      LocationPing[]
+
+  @@index([vendorId, status, expectedFinishAt])
+  @@index([userId, createdAt])
+}
+
+model OrderItem {
+  id           String   @id @default(uuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId   String
+  menuItem     MenuItem @relation(fields: [menuItemId], references: [id])
+  nameSnapshot String
+  pricePaise   Int
+  quantity     Int
+  notes        String?
+}
+
+model OrderEvent {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model DeliveryAssignment {
+  id         String    @id @default(uuid())
+  orderId    String    @unique
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId    String
+  rider      User      @relation(fields: [riderId], references: [id])
+  assignedAt DateTime  @default(now())
+  pickedUpAt DateTime?
+  deliveredAt DateTime?
+}
+
+model RiderProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicle     String?
+  isAvailable Boolean @default(false)
+}
+
+model LocationPing {
+  id         String   @id @default(uuid())
+  riderId    String
+  rider      User     @relation(fields: [riderId], references: [id])
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  lat        Float
+  lng        Float
+  recordedAt DateTime @default(now())
+
+  @@index([orderId, recordedAt])
+}
+
+model DeliveryOtp {
+  id        String   @id @default(uuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model RecommendationScore {
+  id         String   @id @default(uuid())
+  userId     String?
+  groundId   String
+  menuItemId String
+  score      Float
+  reason     String
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, groundId, menuItemId])
+  @@index([groundId, score])
+}
